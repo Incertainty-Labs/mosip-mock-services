@@ -674,6 +674,8 @@ public class SBIServiceResponse {
 			}
 
 			deviceHelper.setDeviceStatus(SBIConstant.DEVICE_STATUS_ISBUSY);
+			// the face device reads its stream source from the active profile when it starts
+			deviceHelper.setProfileId(mockService.getProfileId());
 			deviceHelper.initDevice();
 			deviceHelper.setDeviceId(deviceId);
 			deviceHelper.setDeviceSubId(deviceSubId);
@@ -729,7 +731,7 @@ public class SBIServiceResponse {
 					}
 				}
 
-				Thread.sleep(30);
+				Thread.sleep(deviceHelper.streamWaitMillis(System.currentTimeMillis()));
 			}
 			if (deviceHelper.getCaptureInfo() != null) {
 				deviceHelper.deInitDevice();

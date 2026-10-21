@@ -67,6 +67,25 @@ public abstract class SBIDeviceHelper {
 
 	public abstract int getLiveStream();
 
+	/**
+	 * How long the live stream waits after sending a frame. By default a fixed 30 ms pause; the face device paces
+	 * to its configured frame rate instead.
+	 *
+	 * @param nowMs the current time
+	 * @return milliseconds to wait before the next frame
+	 */
+	public long streamWaitMillis(long nowMs) {
+		return 30;
+	}
+
+	/**
+	 * @return the certification level to report instead of the one in the device JSON files, or {@code null} to
+	 *         keep the files' level
+	 */
+	protected String certificationOverride() {
+		return null;
+	}
+
 	@SuppressWarnings({ "java:S112" })
 	public abstract int getBioCapture(boolean isUsedForAuthenication) throws Exception;
 
@@ -179,6 +198,8 @@ public abstract class SBIDeviceHelper {
 				File jsonFile = new File(fileName);
 				discoverDtoInfo = objectMapper.readValue(jsonFile, DiscoverDto.class);
 				if (discoverDtoInfo != null) {
+					if (certificationOverride() != null)
+						discoverDtoInfo.setCertification(certificationOverride());
 					discoverDtoInfo.setDigitalId(getUnsignedDigitalId(digitalId, true));
 					discoverDtoInfo.setDeviceStatus(getDeviceStatus());
 					discoverDtoInfo.setPurpose(getPurpose());
@@ -326,6 +347,8 @@ public abstract class SBIDeviceHelper {
 
 			devInfo = objectMapper.readValue(new File(fileName), DeviceInfo.class);
 			if (devInfo != null) {
+				if (certificationOverride() != null)
+					devInfo.setCertification(certificationOverride());
 				devInfo.setDigitalId(getUnsignedDigitalId(digitalId, true));
 				devInfo.setDeviceStatus(getDeviceStatus());
 				devInfo.setPurpose(getPurpose());
@@ -635,6 +658,15 @@ public abstract class SBIDeviceHelper {
 					image = FileHelper.readAllBytes(fileName);
 					return image;
 				}
+			}
+			// A profile that only sets the face stream (stream.properties) has no ISO files: use the Default profile's
+			String defaultFileName = FileHelper.getCanonicalPath()
+					+ ApplicationPropertyHelper.getPropertyKeyValue(SBIConstant.MOSIP_PROFILE_DEFAULT_FOLDER_PATH)
+					+ File.separator + getPurpose() + File.separator + bioSubTypeFileName;
+			if (FileHelper.exists(defaultFileName)) {
+				logger.info("getBiometricISOImage :: profile {} has no {}; using {}", getProfileId(),
+						bioSubTypeFileName, defaultFileName);
+				return FileHelper.readAllBytes(defaultFileName);
 			}
 		} catch (Exception ex) {
 			logger.info("getBiometricISOImage :: profileId:: {} :: bioSubTypeFileName:: {}", getProfileId(),

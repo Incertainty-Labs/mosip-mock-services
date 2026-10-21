@@ -65,7 +65,7 @@ You can run the mock service in two modes:
 -   **Using Java**:
     Execute the Main class directly:
     ```bash
-    java -cp mock-mds-1.3.0-SNAPSHOT.jar;lib\* io.mosip.mock.sbi.test.TestMockSBI \
+    java -cp mock-mds-<version>.jar;lib\* io.mosip.mock.sbi.test.TestMockSBI \
     "mosip.mock.sbi.device.purpose=Auth" \
     "mosip.mock.sbi.biometric.type=Biometric Device" \
     "mosip.mock.sbi.biometric.image.type=WSQ"
@@ -76,10 +76,64 @@ You can run the mock service in two modes:
 -   **Using Java**:
     Execute the Main class directly:
     ```bash
-    java -cp mock-mds-1.3.0-SNAPSHOT.jar;lib\* io.mosip.mock.sbi.test.TestMockSBI \
+    java -cp mock-mds-<version>.jar;lib\* io.mosip.mock.sbi.test.TestMockSBI \
     "mosip.mock.sbi.device.purpose=Registration" \
     "mosip.mock.sbi.biometric.type=Biometric Device"
     ```
+
+## Live face stream for liveness testing
+
+By default the face device streams one bundled still image, and RCAPTURE returns a fixed ISO face. For testing face liveness and presentation attack detection, the face device can instead stream a webcam or a recorded clip, and capture the frame it streamed. All of this is off unless you set it; with the defaults MockMDS behaves as before.
+
+### Settings (`application.properties`)
+
+| Key | Values | Default | Effect |
+| --- | --- | --- | --- |
+| `mosip.mock.sbi.face.stream.source` | `static`, `webcam`, `webcam:<n>`, `file:<path>` | `static` | Where stream frames come from. `file:` takes an MJPEG file or a folder of `.jpg`/`.jpeg` images (played in name order); file sources loop. |
+| `mosip.mock.sbi.face.stream.fps` | 1 to 60 | 20 | Stream frame rate. Liveness blink checks need at least 15 fps. |
+| `mosip.mock.sbi.face.capture.from.stream` | `true`, `false`, empty | empty | When on, RCAPTURE returns the last streamed frame as the ISO 19794-5 face (lossless JPEG 2000). Empty means on for every source except `static`. |
+| `mosip.mock.sbi.face.certification` | `L0`, `L1`, `L2`, empty | empty | Certification level the face device reports in discovery and signed device info. Empty keeps the level in the device JSON files (L0). |
+
+A source that cannot be opened (missing file, no camera) ends the stream instead of falling back to the still image. On Windows the webcam is opened with DirectShow first, because the default Media Foundation backend can take close to a minute to open some cameras.
+
+### Profiles
+
+A profile folder can hold a `stream.properties` with the same keys; it overrides `application.properties` while that profile is active. A relative `file:` path is relative to the profile folder. A profile without its own ISO files uses the `Default` profile's.
+
+| Profile | Stream | Use |
+| --- | --- | --- |
+| `webcam` | first webcam | bona fide live capture |
+| `bonafide` | `Profile/bonafide/clips/bonafide.mjpeg` | recorded bona fide clip |
+| `print` | `Profile/print/clips/print.mjpeg` | printed photo attack |
+| `screen` | `Profile/screen/clips/screen.mjpeg` | photo or video shown on a screen |
+| `replay` | `Profile/replay/clips/replay.mjpeg` | replayed video |
+| `static` | the bundled still image | replayed still image (what a stock MockMDS streams) |
+
+Switch profiles without a restart:
+
+```bash
+curl -X POST -H "Content-Type: application/json" \
+  -d '{"type":"Biometric Device","profileId":"print"}' http://127.0.0.1:4501/admin/profile
+```
+
+The stream picks up the profile when it starts, so start a new stream (or rescan in the client) after switching.
+
+### Recording clips
+
+The `clips/` folders are git-ignored. Clips show people's faces: record only people who agreed, keep the clips on your machine, and never commit them.
+
+Record from a webcam with [FFmpeg](https://ffmpeg.org/) as MJPEG (each frame a JPEG, which is what the `file:` source reads):
+
+```bash
+# Windows: list cameras, then record about 10 seconds
+ffmpeg -list_devices true -f dshow -i dummy
+ffmpeg -f dshow -i video="<camera name>" -t 10 -r 20 -c:v mjpeg -q:v 3 Profile/bonafide/clips/bonafide.mjpeg
+
+# Linux
+ffmpeg -f v4l2 -i /dev/video0 -t 10 -r 20 -c:v mjpeg -q:v 3 Profile/bonafide/clips/bonafide.mjpeg
+```
+
+For the attack profiles, point the camera at the attack while recording: a printed photo (`print`), a phone or monitor showing a photo or video (`screen`), or a replayed recording (`replay`). Copy the clips into the same `Profile/<name>/clips/` folder under `target` too, or rebuild, since MockMDS runs from `target`.
 
 ## 🚀 Deployment
 -   **Docker**: Currently, this module does not have a standard Dockerfile for containerized deployment in the main flow, as MDS usually runs on the client machine (Windows/Android) rather than the server. Setup is typically done directly on the Mock MDS host machine.

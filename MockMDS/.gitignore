@@ -30,3 +30,6 @@ build/
 ### VS Code ###
 .vscode/
 /bin/
+
+### Recorded face clips for the stream profiles (personal data, never committed) ###
+Profile/*/clips/
