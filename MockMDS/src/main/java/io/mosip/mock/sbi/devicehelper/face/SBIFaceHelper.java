@@ -1,15 +1,38 @@
 package io.mosip.mock.sbi.devicehelper.face;
 
+import java.io.IOException;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import io.mosip.mock.sbi.SBIConstant;
 import io.mosip.mock.sbi.devicehelper.SBIDeviceHelper;
+import io.mosip.mock.sbi.stream.FaceStreamSource;
+import io.mosip.mock.sbi.stream.FramePacer;
+import io.mosip.mock.sbi.stream.FrameProvider;
+import io.mosip.mock.sbi.stream.FrameProviders;
 import io.mosip.mock.sbi.util.ApplicationPropertyHelper;
 import io.mosip.mock.sbi.util.BioUtilHelper;
 import io.mosip.mock.sbi.util.StringHelper;
 
 public class SBIFaceHelper extends SBIDeviceHelper {
+	private static final Logger logger = LoggerFactory.getLogger(SBIFaceHelper.class);
+
+	/** Live stream source: static (default), webcam, webcam:&lt;n&gt; or file:&lt;path&gt;. */
+	public static final String STREAM_SOURCE_KEY = "mosip.mock.sbi.face.stream.source";
+	/** Live stream frame rate, 1 to 60 (default 20). */
+	public static final String STREAM_FPS_KEY = "mosip.mock.sbi.face.stream.fps";
+
+	private FaceStreamSource streamSource;
+	private FramePacer streamPacer;
+	private FrameProvider frameProvider;
+	private volatile byte[] lastStreamedFrame;
+
 	private SBIFaceHelper(int port, String purpose, String keystoreFilePath, String biometricImageType) {
 		super(port, purpose, SBIConstant.MOSIP_BIOMETRIC_TYPE_FACE, SBIConstant.MOSIP_BIOMETRIC_SUBTYPE_FACE,
 				keystoreFilePath, biometricImageType);
+		this.streamSource = configuredStreamSource();
+		this.streamPacer = FramePacer.fromConfig(ApplicationPropertyHelper.getPropertyKeyValue(STREAM_FPS_KEY));
 	}
 
 	// synchronized method to control simultaneous access
@@ -18,16 +41,72 @@ public class SBIFaceHelper extends SBIDeviceHelper {
 		return new SBIFaceHelper(port, purpose, keystoreFilePath, biometricImageType);
 	}
 
+	private static FaceStreamSource configuredStreamSource() {
+		String value = ApplicationPropertyHelper.getPropertyKeyValue(STREAM_SOURCE_KEY);
+		try {
+			return FaceStreamSource.parse(value);
+		} catch (IllegalArgumentException ex) {
+			logger.error("{}; streaming the static image", ex.getMessage());
+			return FaceStreamSource.parse("static");
+		}
+	}
+
+	/** @param source where the next live stream takes its frames from */
+	public void setStreamSource(FaceStreamSource source) {
+		this.streamSource = source;
+	}
+
+	/** @param pacer the frame rate for the live stream */
+	public void setStreamPacer(FramePacer pacer) {
+		this.streamPacer = pacer;
+	}
+
+	/** @return the last frame sent on the live stream, kept after the stream ends; {@code null} before any */
+	public byte[] getLastStreamedFrame() {
+		return lastStreamedFrame;
+	}
+
+	@Override
+	public long streamWaitMillis(long nowMs) {
+		return streamPacer.waitMillis(nowMs);
+	}
+
 	@Override
 	public long initDevice() {
 		SBIFaceCaptureInfo captureInfo = new SBIFaceCaptureInfo();
 		captureInfo.initCaptureInfo();
 		setCaptureInfo(captureInfo);
+		openFrameProvider();
+		streamPacer.start(System.currentTimeMillis());
 		return 0;
+	}
+
+	private void openFrameProvider() {
+		closeFrameProvider();
+		if (streamSource.kind() == FaceStreamSource.Kind.STATIC) {
+			return;
+		}
+		try {
+			frameProvider = FrameProviders.open(streamSource);
+		} catch (IOException | RuntimeException ex) {
+			logger.error("Cannot open the {} face stream source: {}", streamSource.kind(), ex.getMessage());
+		}
+	}
+
+	private void closeFrameProvider() {
+		if (frameProvider != null) {
+			try {
+				frameProvider.close();
+			} catch (IOException ex) {
+				logger.error("Closing the face stream source failed", ex);
+			}
+			frameProvider = null;
+		}
 	}
 
 	@Override
 	public int deInitDevice() {
+		closeFrameProvider();
 		if (getCaptureInfo() != null)
 			getCaptureInfo().deInitCaptureInfo();
 		setCaptureInfo(null);
@@ -36,12 +115,29 @@ public class SBIFaceHelper extends SBIDeviceHelper {
 
 	@Override
 	public int getLiveStream() {
-		byte[] image = getLiveStreamBufferedImage();
+		byte[] image = nextStreamFrame();
 		if (image == null || image.length == 0)
 			return -1;
 		getCaptureInfo().setImage(image);
+		lastStreamedFrame = image;
 
 		return 0;
+	}
+
+	/** The next frame from the configured source; a source that failed to open ends the stream (no static fallback). */
+	private byte[] nextStreamFrame() {
+		if (streamSource.kind() == FaceStreamSource.Kind.STATIC) {
+			return getLiveStreamBufferedImage();
+		}
+		if (frameProvider == null) {
+			return new byte[0];
+		}
+		try {
+			return frameProvider.nextFrame();
+		} catch (IOException ex) {
+			logger.error("Face stream source failed", ex);
+			return new byte[0];
+		}
 	}
 
 	@Override

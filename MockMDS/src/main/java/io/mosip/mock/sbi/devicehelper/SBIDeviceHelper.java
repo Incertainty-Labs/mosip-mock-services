@@ -67,6 +67,17 @@ public abstract class SBIDeviceHelper {
 
 	public abstract int getLiveStream();
 
+	/**
+	 * How long the live stream waits after sending a frame. By default a fixed 30 ms pause; the face device paces
+	 * to its configured frame rate instead.
+	 *
+	 * @param nowMs the current time
+	 * @return milliseconds to wait before the next frame
+	 */
+	public long streamWaitMillis(long nowMs) {
+		return 30;
+	}
+
 	@SuppressWarnings({ "java:S112" })
 	public abstract int getBioCapture(boolean isUsedForAuthenication) throws Exception;
 

@@ -729,7 +729,7 @@ public class SBIServiceResponse {
 					}
 				}
 
-				Thread.sleep(30);
+				Thread.sleep(deviceHelper.streamWaitMillis(System.currentTimeMillis()));
 			}
 			if (deviceHelper.getCaptureInfo() != null) {
 				deviceHelper.deInitDevice();
