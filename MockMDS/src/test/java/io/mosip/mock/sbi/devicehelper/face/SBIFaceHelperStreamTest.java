@@ -3,12 +3,23 @@ package io.mosip.mock.sbi.devicehelper.face;
 import static org.junit.jupiter.api.Assertions.assertAll;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.awt.Color;
+import java.awt.Graphics2D;
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Base64;
+
+import javax.imageio.ImageIO;
+
+import io.mosip.biometrics.util.ConvertRequestDto;
+import io.mosip.biometrics.util.face.FaceDecoder;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -80,6 +91,74 @@ class SBIFaceHelperStreamTest {
 		helper.deInitDevice();
 
 		assertArrayEquals(frame, helper.getLastStreamedFrame());
+	}
+
+	@Test
+	void captureFromStreamEncodesTheLastStreamedFrameAsTheIsoFace() throws Exception {
+		Files.write(dir.resolve("frame.jpg"), jpeg(64, 48, Color.RED));
+		helper.setStreamSource(FaceStreamSource.parse("file:" + dir));
+		helper.setCaptureFromStream(true);
+		startStreamAndTakeOneFrame();
+
+		helper.getBioCapture(false);
+
+		BufferedImage face = decodeIsoFace(((SBIFaceCaptureInfo) helper.getCaptureInfo()).getBioValueFace());
+		Color centre = new Color(face.getRGB(32, 24));
+		assertAll(() -> assertEquals(64, face.getWidth()), () -> assertEquals(48, face.getHeight()),
+				() -> assertTrue(centre.getRed() > 200 && centre.getGreen() < 60 && centre.getBlue() < 60,
+						"centre pixel was " + centre));
+	}
+
+	@Test
+	void withoutCaptureFromStreamTheProfileIsoIsReturned() throws Exception {
+		Files.write(dir.resolve("frame.jpg"), jpeg(64, 48, Color.RED));
+		helper.setStreamSource(FaceStreamSource.parse("file:" + dir));
+		helper.setCaptureFromStream(false);
+		startStreamAndTakeOneFrame();
+
+		helper.getBioCapture(false);
+
+		byte[] profileIso = Files.readAllBytes(Path.of(FileHelper.getCanonicalPath(), "Profile",
+				SBIConstant.PROFILE_DEFAULT, SBIConstant.PURPOSE_REGISTRATION, SBIConstant.PROFILE_BIO_FILE_NAME_FACE));
+		assertArrayEquals(profileIso,
+				Base64.getUrlDecoder().decode(((SBIFaceCaptureInfo) helper.getCaptureInfo()).getBioValueFace()));
+	}
+
+	@Test
+	void captureFromStreamIsOnByDefaultOnlyForNonStaticSources() {
+		assertAll(() -> assertTrue(SBIFaceHelper.captureFromStreamFromConfig(null, FaceStreamSource.parse("webcam"))),
+				() -> assertFalse(SBIFaceHelper.captureFromStreamFromConfig(null, FaceStreamSource.parse("static"))),
+				() -> assertFalse(SBIFaceHelper.captureFromStreamFromConfig("false", FaceStreamSource.parse("webcam"))),
+				() -> assertTrue(SBIFaceHelper.captureFromStreamFromConfig(" TRUE ", FaceStreamSource.parse("static"))));
+	}
+
+	private void startStreamAndTakeOneFrame() {
+		helper.setProfileId(SBIConstant.PROFILE_DEFAULT);
+		helper.setDeviceSubId(SBIConstant.DEVICE_FACE_SUB_TYPE_ID_FULLFACE);
+		helper.initDevice();
+		assertEquals(0, helper.getLiveStream());
+		helper.deInitDevice();
+		// RCAPTURE starts the device again, as SBIServiceResponse does
+		helper.initDevice();
+	}
+
+	private static BufferedImage decodeIsoFace(String bioValue) throws Exception {
+		ConvertRequestDto request = new ConvertRequestDto();
+		request.setModality("Face");
+		request.setVersion("ISO19794_5_2011");
+		request.setInputBytes(Base64.getUrlDecoder().decode(bioValue));
+		return FaceDecoder.convertFaceISOToBufferedImage(request);
+	}
+
+	private static byte[] jpeg(int width, int height, Color colour) throws IOException {
+		BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
+		Graphics2D g = image.createGraphics();
+		g.setColor(colour);
+		g.fillRect(0, 0, width, height);
+		g.dispose();
+		ByteArrayOutputStream out = new ByteArrayOutputStream();
+		ImageIO.write(image, "jpg", out);
+		return out.toByteArray();
 	}
 
 	@Test

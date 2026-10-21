@@ -5,6 +5,7 @@ import java.io.IOException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import io.mosip.biometrics.util.CommonUtil;
 import io.mosip.mock.sbi.SBIConstant;
 import io.mosip.mock.sbi.devicehelper.SBIDeviceHelper;
 import io.mosip.mock.sbi.stream.FaceStreamSource;
@@ -22,9 +23,15 @@ public class SBIFaceHelper extends SBIDeviceHelper {
 	public static final String STREAM_SOURCE_KEY = "mosip.mock.sbi.face.stream.source";
 	/** Live stream frame rate, 1 to 60 (default 20). */
 	public static final String STREAM_FPS_KEY = "mosip.mock.sbi.face.stream.fps";
+	/** Whether RCAPTURE returns the last streamed frame; unset means on for every source except static. */
+	public static final String CAPTURE_FROM_STREAM_KEY = "mosip.mock.sbi.face.capture.from.stream";
+
+	/** OpenCV JPEG 2000 compression x1000; 1000 is lossless. */
+	private static final int JP2_LOSSLESS = 1000;
 
 	private FaceStreamSource streamSource;
 	private FramePacer streamPacer;
+	private boolean captureFromStream;
 	private FrameProvider frameProvider;
 	private volatile byte[] lastStreamedFrame;
 
@@ -33,6 +40,44 @@ public class SBIFaceHelper extends SBIDeviceHelper {
 				keystoreFilePath, biometricImageType);
 		this.streamSource = configuredStreamSource();
 		this.streamPacer = FramePacer.fromConfig(ApplicationPropertyHelper.getPropertyKeyValue(STREAM_FPS_KEY));
+		this.captureFromStream = captureFromStreamFromConfig(
+				ApplicationPropertyHelper.getPropertyKeyValue(CAPTURE_FROM_STREAM_KEY), streamSource);
+	}
+
+	/**
+	 * @param value  the configured {@value #CAPTURE_FROM_STREAM_KEY}; {@code null} or blank means "follow the source"
+	 * @param source the configured stream source
+	 * @return whether RCAPTURE should return the last streamed frame
+	 */
+	public static boolean captureFromStreamFromConfig(String value, FaceStreamSource source) {
+		if (value == null || value.isBlank()) {
+			return source.kind() != FaceStreamSource.Kind.STATIC;
+		}
+		return Boolean.parseBoolean(value.trim());
+	}
+
+	/** @param captureFromStream whether RCAPTURE returns the last streamed frame instead of the profile ISO */
+	public void setCaptureFromStream(boolean captureFromStream) {
+		this.captureFromStream = captureFromStream;
+	}
+
+	/**
+	 * @return the last streamed frame as an ISO 19794-5 face (lossless JPEG 2000), or {@code null} when nothing was
+	 *         streamed or encoding failed, so the profile ISO is used
+	 */
+	private byte[] streamedFaceIso() {
+		byte[] frame = lastStreamedFrame;
+		if (frame == null) {
+			logger.warn("Capture from stream is on but nothing was streamed; returning the profile face");
+			return null;
+		}
+		try {
+			byte[] jp2 = CommonUtil.convertJPEGToJP2UsingOpenCV(frame, JP2_LOSSLESS);
+			return BioUtilHelper.getFaceIsoFromJP2000(getPurpose(), SBIConstant.MOSIP_BIOMETRIC_SUBTYPE_FACE, jp2);
+		} catch (Exception ex) {
+			logger.error("Encoding the streamed frame as an ISO face failed; returning the profile face", ex);
+			return null;
+		}
 	}
 
 	// synchronized method to control simultaneous access
@@ -162,7 +207,9 @@ public class SBIFaceHelper extends SBIDeviceHelper {
 		}
 
 		if (!isUsedForAuthenication) {
-			isoData = getBiometricISOImage(seedName, SBIConstant.PROFILE_BIO_FILE_NAME_FACE);
+			isoData = captureFromStream ? streamedFaceIso() : null;
+			if (isoData == null)
+				isoData = getBiometricISOImage(seedName, SBIConstant.PROFILE_BIO_FILE_NAME_FACE);
 			if (isoData != null && !((SBIFaceCaptureInfo) getCaptureInfo()).isCaptureFace()) {
 				((SBIFaceCaptureInfo) getCaptureInfo()).setBioValueFace(StringHelper.base64UrlEncode(isoData));
 				if (isScoreFromIso())
