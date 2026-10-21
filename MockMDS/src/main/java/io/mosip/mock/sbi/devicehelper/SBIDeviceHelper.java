@@ -647,6 +647,15 @@ public abstract class SBIDeviceHelper {
 					return image;
 				}
 			}
+			// A profile that only sets the face stream (stream.properties) has no ISO files: use the Default profile's
+			String defaultFileName = FileHelper.getCanonicalPath()
+					+ ApplicationPropertyHelper.getPropertyKeyValue(SBIConstant.MOSIP_PROFILE_DEFAULT_FOLDER_PATH)
+					+ File.separator + getPurpose() + File.separator + bioSubTypeFileName;
+			if (FileHelper.exists(defaultFileName)) {
+				logger.info("getBiometricISOImage :: profile {} has no {}; using {}", getProfileId(),
+						bioSubTypeFileName, defaultFileName);
+				return FileHelper.readAllBytes(defaultFileName);
+			}
 		} catch (Exception ex) {
 			logger.info("getBiometricISOImage :: profileId:: {} :: bioSubTypeFileName:: {}", getProfileId(),
 					bioSubTypeFileName);

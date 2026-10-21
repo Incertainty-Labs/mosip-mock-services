@@ -60,6 +60,17 @@ public final class FaceStreamSource {
 				+ "file:<path>, got '" + value + "'");
 	}
 
+	/**
+	 * @param folder the folder a relative {@code file:} path is relative to
+	 * @return this source, with a relative file path resolved against {@code folder}
+	 */
+	public FaceStreamSource resolveAgainst(Path folder) {
+		if (kind != Kind.FILE || path.isAbsolute()) {
+			return this;
+		}
+		return new FaceStreamSource(Kind.FILE, -1, folder.resolve(path));
+	}
+
 	/** @return the kind of source */
 	public Kind kind() {
 		return kind;
