@@ -78,6 +78,14 @@ public abstract class SBIDeviceHelper {
 		return 30;
 	}
 
+	/**
+	 * @return the certification level to report instead of the one in the device JSON files, or {@code null} to
+	 *         keep the files' level
+	 */
+	protected String certificationOverride() {
+		return null;
+	}
+
 	@SuppressWarnings({ "java:S112" })
 	public abstract int getBioCapture(boolean isUsedForAuthenication) throws Exception;
 
@@ -190,6 +198,8 @@ public abstract class SBIDeviceHelper {
 				File jsonFile = new File(fileName);
 				discoverDtoInfo = objectMapper.readValue(jsonFile, DiscoverDto.class);
 				if (discoverDtoInfo != null) {
+					if (certificationOverride() != null)
+						discoverDtoInfo.setCertification(certificationOverride());
 					discoverDtoInfo.setDigitalId(getUnsignedDigitalId(digitalId, true));
 					discoverDtoInfo.setDeviceStatus(getDeviceStatus());
 					discoverDtoInfo.setPurpose(getPurpose());
@@ -337,6 +347,8 @@ public abstract class SBIDeviceHelper {
 
 			devInfo = objectMapper.readValue(new File(fileName), DeviceInfo.class);
 			if (devInfo != null) {
+				if (certificationOverride() != null)
+					devInfo.setCertification(certificationOverride());
 				devInfo.setDigitalId(getUnsignedDigitalId(digitalId, true));
 				devInfo.setDeviceStatus(getDeviceStatus());
 				devInfo.setPurpose(getPurpose());

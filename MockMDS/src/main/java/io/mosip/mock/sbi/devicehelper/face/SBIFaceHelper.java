@@ -3,6 +3,7 @@ package io.mosip.mock.sbi.devicehelper.face;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Locale;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -26,6 +27,9 @@ public class SBIFaceHelper extends SBIDeviceHelper {
 	/** Live stream frame rate, 1 to 60 (default 20). */
 	public static final String STREAM_FPS_KEY = "mosip.mock.sbi.face.stream.fps";
 
+	/** Certification level the face device reports: L0, L1 or L2; unset keeps the device JSON files' level. */
+	public static final String CERTIFICATION_KEY = "mosip.mock.sbi.face.certification";
+
 	/** OpenCV JPEG 2000 compression x1000; 1000 is lossless. */
 	private static final int JP2_LOSSLESS = 1000;
 
@@ -37,6 +41,7 @@ public class SBIFaceHelper extends SBIDeviceHelper {
 	private FaceStreamSettings active;
 	private FrameProvider frameProvider;
 	private volatile byte[] lastStreamedFrame;
+	private String certification;
 
 	private SBIFaceHelper(int port, String purpose, String keystoreFilePath, String biometricImageType) {
 		super(port, purpose, SBIConstant.MOSIP_BIOMETRIC_TYPE_FACE, SBIConstant.MOSIP_BIOMETRIC_SUBTYPE_FACE,
@@ -44,6 +49,33 @@ public class SBIFaceHelper extends SBIDeviceHelper {
 		this.configured = configuredSettings();
 		this.streamPacer = FramePacer.fromConfig(ApplicationPropertyHelper.getPropertyKeyValue(STREAM_FPS_KEY));
 		this.profileRoot = configuredProfileRoot();
+		setCertification(ApplicationPropertyHelper.getPropertyKeyValue(CERTIFICATION_KEY));
+		if (certification != null) {
+			// the base constructor loaded the device details before this setting was read
+			initDeviceDetails();
+		}
+	}
+
+	/**
+	 * @param level L0, L1 or L2 (any case) to report in discovery and device info; anything else keeps the level
+	 *              from the device JSON files
+	 */
+	public void setCertification(String level) {
+		String normalised = level == null ? "" : level.trim().toUpperCase(Locale.ROOT);
+		if (normalised.matches("L[012]")) {
+			this.certification = normalised;
+			return;
+		}
+		if (!normalised.isEmpty()) {
+			logger.error("{}: expected L0, L1 or L2, got '{}'; using the level from the device files",
+					CERTIFICATION_KEY, level);
+		}
+		this.certification = null;
+	}
+
+	@Override
+	protected String certificationOverride() {
+		return certification;
 	}
 
 	// synchronized method to control simultaneous access
