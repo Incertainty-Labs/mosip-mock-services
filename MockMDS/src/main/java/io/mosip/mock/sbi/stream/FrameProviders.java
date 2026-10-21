@@ -16,11 +16,15 @@ public final class FrameProviders {
 
 	/**
 	 * @param source the configured source
-	 * @return a provider for {@code file:} sources
-	 * @throws IllegalArgumentException if the file or folder is missing or holds no JPEG frames
+	 * @return a provider for {@code webcam} and {@code file:} sources
+	 * @throws IllegalArgumentException if the camera cannot be opened, or the file or folder is missing or holds no
+	 *                                  JPEG frames
 	 * @throws IOException              if the frames cannot be read
 	 */
 	public static FrameProvider open(FaceStreamSource source) throws IOException {
+		if (source.kind() == FaceStreamSource.Kind.WEBCAM) {
+			return WebcamFrameProvider.open(source.cameraIndex());
+		}
 		if (source.kind() != FaceStreamSource.Kind.FILE) {
 			throw new IllegalArgumentException("No frame provider for a " + source.kind() + " source");
 		}
